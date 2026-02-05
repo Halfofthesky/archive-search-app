@@ -32,7 +32,7 @@ export interface DownloadItem {
 export type SearchMode = 'full_text' | 'metadata' | 'both';
 
 export const LANGUAGES = [
-  { value: '', label: 'Any language' },
+  { value: '', label: 'Any language (Recommended)' },
   { value: 'Russian', label: 'Russian' },
   { value: 'English', label: 'English' },
   { value: 'German', label: 'German' },

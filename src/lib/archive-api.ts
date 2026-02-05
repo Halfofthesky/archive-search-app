@@ -104,6 +104,55 @@ function buildQueryString(
   return parts.join(' AND ');
 }
 
+function splitQueryWords(query: string): string[] | null {
+  const words = query.trim().split(/\s+/).filter(w => w.length > 0);
+  return words.length > 1 ? words : null;
+}
+
+function buildWordSplitQueryString(
+  words: string[],
+  title: string | undefined,
+  creator: string | undefined,
+  yearFrom: number | undefined,
+  yearTo: number | undefined,
+  language: string | undefined,
+  searchMode: string,
+  skipLanguageFilter: boolean = false
+): string {
+  const parts: string[] = ['mediatype:texts'];
+
+  if (words.length > 0) {
+    if (searchMode === 'metadata') {
+      const wordClauses = words.map(word =>
+        `(title:"${word}" OR creator:"${word}" OR subject:"${word}")`
+      );
+      parts.push(`(${wordClauses.join(' AND ')})`);
+    } else {
+      // 'both' mode
+      parts.push(`(${words.join(' AND ')})`);
+    }
+  }
+
+  if (title?.trim()) {
+    parts.push(`title:"${title}"`);
+  }
+  if (creator?.trim()) {
+    parts.push(`creator:"${creator}"`);
+  }
+  if (yearFrom && yearTo) {
+    parts.push(`year:[${yearFrom} TO ${yearTo}]`);
+  } else if (yearFrom) {
+    parts.push(`year:[${yearFrom} TO *]`);
+  } else if (yearTo) {
+    parts.push(`year:[* TO ${yearTo}]`);
+  }
+  if (!skipLanguageFilter && language?.trim() && language !== 'any') {
+    parts.push(`language:"${language}"`);
+  }
+
+  return parts.join(' AND ');
+}
+
 export async function searchArchive(params: SearchParams): Promise<SearchResponse> {
   const allResults: SearchResult[] = [];
   const seenIds = new Set<string>();
@@ -123,7 +172,7 @@ export async function searchArchive(params: SearchParams): Promise<SearchRespons
   const needsExpansion = params.search_mode !== 'full_text' && (hasRussianText || isRussianLanguage);
 
   // Generate query variants
-  type QueryTuple = [string | undefined, string | undefined, string | undefined, string];
+  type QueryTuple = [string | undefined, string | undefined, string | undefined, string, boolean];
 
   let queryVariants: QueryTuple[];
 
@@ -140,7 +189,7 @@ export async function searchArchive(params: SearchParams): Promise<SearchRespons
       const key = `${q || ''}|${t || ''}|${c || ''}`;
       if (!seenQueries.has(key)) {
         seenQueries.add(key);
-        variants.push([q, t, c, type]);
+        variants.push([q, t, c, type, false]);
       }
     };
 
@@ -167,28 +216,64 @@ export async function searchArchive(params: SearchParams): Promise<SearchRespons
 
     // If no variants generated, use original
     if (variants.length === 0) {
-      variants.push([params.query, params.title, params.creator, 'original']);
+      variants.push([params.query, params.title, params.creator, 'original', false]);
     }
 
     console.log('Query variants to search:', variants.map(v => ({ query: v[0], title: v[1], creator: v[2], type: v[3] })));
 
     queryVariants = variants;
   } else {
-    queryVariants = [[params.query, params.title, params.creator, 'original']];
+    queryVariants = [[params.query, params.title, params.creator, 'original', false]];
+  }
+
+  // Add word-split variants for multi-word queries (phrase search first, then individual words)
+  if (params.search_mode !== 'full_text') {
+    const wordSplitVariants: QueryTuple[] = [];
+    for (const [query, _title, _creator, variantType] of queryVariants) {
+      if (query) {
+        const words = splitQueryWords(query);
+        if (words) {
+          // Only word-split Cyrillic variants + original to avoid query explosion
+          const isCyrillicVariant = variantType.includes('nrs') ||
+                                    variantType.includes('ors') ||
+                                    variantType === 'original';
+          if (isCyrillicVariant) {
+            wordSplitVariants.push([query, _title, _creator, `${variantType}+words`, true]);
+          }
+        }
+      }
+    }
+    queryVariants.push(...wordSplitVariants);
   }
 
   // Execute searches for each variant
-  for (const [query, title, creator, variantType] of queryVariants) {
+  for (const [query, title, creator, variantType, isWordSplit] of queryVariants) {
     // Skip language filter for transliterated (Latin) variants - items with Latin titles
     // often have different or missing language metadata
     const isLatinVariant = variantType.includes('ala_lc') || variantType.includes('simplified');
 
-    const queryString = buildQueryString(
-      query, title, creator,
-      params.year_from, params.year_to,
-      params.language, params.search_mode,
-      isLatinVariant // skip language filter for Latin variants
-    );
+    let queryString: string;
+
+    if (isWordSplit && query) {
+      const words = splitQueryWords(query);
+      if (words) {
+        queryString = buildWordSplitQueryString(
+          words, title, creator,
+          params.year_from, params.year_to,
+          params.language, params.search_mode,
+          isLatinVariant
+        );
+      } else {
+        continue;
+      }
+    } else {
+      queryString = buildQueryString(
+        query, title, creator,
+        params.year_from, params.year_to,
+        params.language, params.search_mode,
+        isLatinVariant
+      );
+    }
 
     if (!queryString || queryString === 'mediatype:texts') continue;
 

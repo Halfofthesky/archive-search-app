@@ -60,17 +60,17 @@ export function SearchSidebar({ onSearch, isLoading }: SearchSidebarProps) {
         <div className="toggle-group">
           <button
             type="button"
-            className={`toggle-btn ${formData.searchMode === 'full_text' ? 'active' : ''}`}
-            onClick={() => setFormData(prev => ({ ...prev, searchMode: 'full_text' }))}
-          >
-            Full text
-          </button>
-          <button
-            type="button"
             className={`toggle-btn ${formData.searchMode === 'metadata' ? 'active' : ''}`}
             onClick={() => setFormData(prev => ({ ...prev, searchMode: 'metadata' }))}
           >
             Metadata
+          </button>
+          <button
+            type="button"
+            className={`toggle-btn ${formData.searchMode === 'full_text' ? 'active' : ''}`}
+            onClick={() => setFormData(prev => ({ ...prev, searchMode: 'full_text' }))}
+          >
+            Full text
           </button>
           <button
             type="button"
