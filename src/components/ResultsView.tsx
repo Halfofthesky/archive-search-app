@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { SearchResponse, SearchResult } from '../lib/archive-api';
 import { BookIcon, ListIcon, GridIcon, CheckIcon, ExternalIcon } from './Icons';
 
@@ -64,6 +65,28 @@ export function ResultsView({
     );
   }
 
+  const sortedResults = useMemo(() => {
+    const results = [...response.results];
+    switch (sortBy) {
+      case 'date-desc':
+        return results.sort((a, b) => {
+          const ya = parseInt(a.year || '0', 10);
+          const yb = parseInt(b.year || '0', 10);
+          return yb - ya;
+        });
+      case 'date-asc':
+        return results.sort((a, b) => {
+          const ya = parseInt(a.year || '9999', 10);
+          const yb = parseInt(b.year || '9999', 10);
+          return ya - yb;
+        });
+      case 'downloads':
+        return results.sort((a, b) => (b.downloads || 0) - (a.downloads || 0));
+      default: // 'relevance' — keep original order from API
+        return results;
+    }
+  }, [response.results, sortBy]);
+
   const totalPages = Math.ceil(response.total_results / response.rows);
 
   return (
@@ -106,7 +129,7 @@ export function ResultsView({
 
       {viewMode === 'list' ? (
         <div className="results-list">
-          {response.results.map(book => (
+          {sortedResults.map(book => (
             <BookCardList
               key={book.identifier}
               book={book}
@@ -117,7 +140,7 @@ export function ResultsView({
         </div>
       ) : (
         <div className="results-grid">
-          {response.results.map(book => (
+          {sortedResults.map(book => (
             <BookCardGrid
               key={book.identifier}
               book={book}
