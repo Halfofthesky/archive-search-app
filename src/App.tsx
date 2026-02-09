@@ -118,19 +118,38 @@ function App() {
     setQueue([]);
   }, []);
 
+  const getDownloadUrl = useCallback((identifier: string, format: string) => {
+    // Archive.org compress endpoint returns the requested format for an item
+    // This works more reliably than guessing the exact filename
+    const formatMap: Record<string, string> = {
+      'pdf': 'TEXT PDF',
+      'epub': 'EPUB',
+      'djvu': 'DJVU',
+      'txt': 'TEXT',
+    };
+    const archiveFormat = formatMap[format.toLowerCase()] || format.toUpperCase();
+    return `https://archive.org/compress/${identifier}/formats=${encodeURIComponent(archiveFormat)}`;
+  }, []);
+
   const handleDownload = useCallback(() => {
-    console.log('Starting download:', queue.map(q => ({ id: q.identifier, format: q.selectedFormat })));
-    alert(`Starting download of ${queue.length} items...`);
-  }, [queue]);
+    if (queue.length === 0) return;
+
+    // For web app: open download URLs
+    // Using Archive.org's compress endpoint which bundles requested format
+    queue.forEach((item, index) => {
+      setTimeout(() => {
+        const url = getDownloadUrl(item.identifier, item.selectedFormat);
+        window.open(url, '_blank');
+      }, index * 500); // Stagger to avoid popup blockers
+    });
+  }, [queue, getDownloadUrl]);
 
   const exportList = useCallback(() => {
-    const list = queue.map(q =>
-      `https://archive.org/download/${q.identifier}/${q.identifier}.${q.selectedFormat}`
-    ).join('\n');
-    console.log('Export list:\n', list);
+    // Generate direct download URLs for wget/curl/ia CLI
+    const list = queue.map(q => getDownloadUrl(q.identifier, q.selectedFormat)).join('\n');
     navigator.clipboard?.writeText(list);
     alert('URL list copied to clipboard!');
-  }, [queue]);
+  }, [queue, getDownloadUrl]);
 
   return (
     <div className="app">
