@@ -4,7 +4,7 @@ import { ResultsView } from './components/ResultsView';
 import { QueuePage } from './components/QueuePage';
 import { SettingsPage } from './components/SettingsPage';
 import { SelectionPanel } from './components/SelectionPanel';
-import { searchArchive } from './lib/archive-api';
+import { searchArchive, getItemDetails } from './lib/archive-api';
 import type { SearchResponse } from './lib/archive-api';
 import type { SearchFormData, QueueItem, AppSettings } from './types';
 import { SearchIcon, CartIcon, SettingsIcon } from './components/Icons';
@@ -118,38 +118,62 @@ function App() {
     setQueue([]);
   }, []);
 
-  const getDownloadUrl = useCallback((identifier: string, format: string) => {
-    // Archive.org compress endpoint returns the requested format for an item
-    // This works more reliably than guessing the exact filename
-    const formatMap: Record<string, string> = {
-      'pdf': 'TEXT PDF',
-      'epub': 'EPUB',
-      'djvu': 'DJVU',
-      'txt': 'TEXT',
-    };
-    const archiveFormat = formatMap[format.toLowerCase()] || format.toUpperCase();
-    return `https://archive.org/compress/${identifier}/formats=${encodeURIComponent(archiveFormat)}`;
-  }, []);
-
-  const handleDownload = useCallback(() => {
+  const handleDownload = useCallback(async () => {
     if (queue.length === 0) return;
 
-    // For web app: open download URLs
-    // Using Archive.org's compress endpoint which bundles requested format
-    queue.forEach((item, index) => {
-      setTimeout(() => {
-        const url = getDownloadUrl(item.identifier, item.selectedFormat);
-        window.open(url, '_blank');
-      }, index * 500); // Stagger to avoid popup blockers
-    });
-  }, [queue, getDownloadUrl]);
+    // Fetch actual file URLs from Archive.org metadata and download
+    for (let i = 0; i < queue.length; i++) {
+      const item = queue[i];
+      try {
+        const details = await getItemDetails(item.identifier);
+        const formatLower = item.selectedFormat.toLowerCase();
 
-  const exportList = useCallback(() => {
+        // Find matching file by format
+        const file = details.files.find(f =>
+          f.format.toLowerCase().includes(formatLower) ||
+          f.name.toLowerCase().endsWith(`.${formatLower}`)
+        );
+
+        if (file) {
+          // Small delay between downloads to avoid browser blocking
+          await new Promise(resolve => setTimeout(resolve, i * 300));
+          window.open(file.download_url, '_blank');
+        } else {
+          console.warn(`No ${item.selectedFormat} file found for ${item.identifier}`);
+        }
+      } catch (error) {
+        console.error(`Failed to get details for ${item.identifier}:`, error);
+      }
+    }
+  }, [queue]);
+
+  const exportList = useCallback(async () => {
     // Generate direct download URLs for wget/curl/ia CLI
-    const list = queue.map(q => getDownloadUrl(q.identifier, q.selectedFormat)).join('\n');
-    navigator.clipboard?.writeText(list);
-    alert('URL list copied to clipboard!');
-  }, [queue, getDownloadUrl]);
+    const urls: string[] = [];
+
+    for (const item of queue) {
+      try {
+        const details = await getItemDetails(item.identifier);
+        const formatLower = item.selectedFormat.toLowerCase();
+        const file = details.files.find(f =>
+          f.format.toLowerCase().includes(formatLower) ||
+          f.name.toLowerCase().endsWith(`.${formatLower}`)
+        );
+        if (file) {
+          urls.push(file.download_url);
+        }
+      } catch (error) {
+        console.error(`Failed to get URL for ${item.identifier}:`, error);
+      }
+    }
+
+    if (urls.length > 0) {
+      navigator.clipboard?.writeText(urls.join('\n'));
+      alert(`${urls.length} URLs copied to clipboard!`);
+    } else {
+      alert('No valid URLs found');
+    }
+  }, [queue]);
 
   return (
     <div className="app">
